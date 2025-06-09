@@ -30,6 +30,17 @@ public class Statistics {
     // Constants
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
     
+    /**
+     * Helper method to repeat string (Java 8 compatible)
+     */
+    private String repeatString(String str, int count) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            sb.append(str);
+        }
+        return sb.toString();
+    }
+    
     // Concurrency controls
     private final ReadWriteLock statisticsLock;
     
@@ -89,8 +100,8 @@ public class Statistics {
         this.paidVehicles = new AtomicInteger(0);
         
         // Initialize timing statistics
-        this.vehicleWaitTimes = new ConcurrentHashMap<>();
-        this.vehicleParkingDurations = new ConcurrentHashMap<>();
+        this.vehicleWaitTimes = new ConcurrentHashMap<String, Long>();
+        this.vehicleParkingDurations = new ConcurrentHashMap<String, Long>();
         this.totalSystemRunTime = new AtomicLong(0);
         this.systemStartTime = LocalDateTime.now();
         
@@ -101,20 +112,23 @@ public class Statistics {
         this.peakWaitingTime = LocalDateTime.now();
         
         // Initialize gate statistics
-        this.gateProcessingCounts = new ConcurrentHashMap<>();
-        this.gateProcessingTimes = new ConcurrentHashMap<>();
+        this.gateProcessingCounts = new ConcurrentHashMap<String, AtomicInteger>();
+        this.gateProcessingTimes = new ConcurrentHashMap<String, AtomicLong>();
         
         // Initialize error tracking
         this.systemErrors = new AtomicInteger(0);
         this.paymentSystemMalfunctions = new AtomicInteger(0);
         this.gateBarrierMalfunctions = new AtomicInteger(0);
-        this.errorLog = new ConcurrentLinkedQueue<>();
+        this.errorLog = new ConcurrentLinkedQueue<ErrorRecord>();
         
         // Initialize reporting
-        this.statisticsReporter = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "StatisticsReporter");
-            t.setDaemon(true);
-            return t;
+        this.statisticsReporter = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = new Thread(r, "StatisticsReporter");
+                t.setDaemon(true);
+                return t;
+            }
         });
         this.isCollecting = true;
         
@@ -126,7 +140,12 @@ public class Statistics {
      */
     public void startPeriodicReporting(int intervalMinutes) {
         statisticsReporter.scheduleAtFixedRate(
-                this::generatePeriodicReport,
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        generatePeriodicReport();
+                    }
+                },
                 intervalMinutes,
                 intervalMinutes,
                 TimeUnit.MINUTES
@@ -189,8 +208,18 @@ public class Statistics {
      * Record gate processing statistics
      */
     public void recordGateProcessing(String gateName, long processingTimeMs) {
-        gateProcessingCounts.computeIfAbsent(gateName, k -> new AtomicInteger(0)).incrementAndGet();
-        gateProcessingTimes.computeIfAbsent(gateName, k -> new AtomicLong(0)).addAndGet(processingTimeMs);
+        gateProcessingCounts.computeIfAbsent(gateName, new Function<String, AtomicInteger>() {
+            @Override
+            public AtomicInteger apply(String k) {
+                return new AtomicInteger(0);
+            }
+        }).incrementAndGet();
+        gateProcessingTimes.computeIfAbsent(gateName, new Function<String, AtomicLong>() {
+            @Override
+            public AtomicLong apply(String k) {
+                return new AtomicLong(0);
+            }
+        }).addAndGet(processingTimeMs);
     }
     
     /**
@@ -254,9 +283,10 @@ public class Statistics {
     public double getAverageWaitingTime() {
         if (vehicleWaitTimes.isEmpty()) return 0.0;
         
-        long totalWaitTime = vehicleWaitTimes.values().stream()
-                .mapToLong(Long::longValue)
-                .sum();
+        long totalWaitTime = 0;
+        for (Long waitTime : vehicleWaitTimes.values()) {
+            totalWaitTime += waitTime;
+        }
         
         return (double) totalWaitTime / vehicleWaitTimes.size() / 1000.0; // Convert to seconds
     }
@@ -267,9 +297,10 @@ public class Statistics {
     public double getAverageParkingDuration() {
         if (vehicleParkingDurations.isEmpty()) return 0.0;
         
-        long totalDuration = vehicleParkingDurations.values().stream()
-                .mapToLong(Long::longValue)
-                .sum();
+        long totalDuration = 0;
+        for (Long duration : vehicleParkingDurations.values()) {
+            totalDuration += duration;
+        }
         
         return (double) totalDuration / vehicleParkingDurations.size(); // In minutes
     }
@@ -327,11 +358,11 @@ public class Statistics {
                     
                     // Error statistics
                     systemErrors.get(),
-                    new ArrayList<>(errorLog),
+                    new ArrayList<ErrorRecord>(errorLog),
                     
                     // Gate statistics
-                    new HashMap<>(gateProcessingCounts),
-                    new HashMap<>(gateProcessingTimes)
+                    new HashMap<String, AtomicInteger>(gateProcessingCounts),
+                    new HashMap<String, AtomicLong>(gateProcessingTimes)
             );
             
         } finally {
@@ -378,9 +409,9 @@ public class Statistics {
     public void printFinalStatistics() {
         SystemStatistics stats = generateFinalReport();
         
-        System.out.println("\n" + "=".repeat(80));
+        System.out.println("\n" + repeatString("=", 80));
         System.out.println("           SMART PARKING SYSTEM - FINAL STATISTICS REPORT");
-        System.out.println("=".repeat(80));
+        System.out.println(repeatString("=", 80));
         
         // Vehicle Statistics
         System.out.println("\n🚗 VEHICLE STATISTICS:");
@@ -420,7 +451,8 @@ public class Statistics {
         for (Map.Entry<String, AtomicInteger> entry : stats.gateProcessingCounts.entrySet()) {
             String gateName = entry.getKey();
             int count = entry.getValue().get();
-            long totalTime = stats.gateProcessingTimes.getOrDefault(gateName, new AtomicLong(0)).get();
+            AtomicLong totalTimeAtomic = stats.gateProcessingTimes.get(gateName);
+            long totalTime = totalTimeAtomic != null ? totalTimeAtomic.get() : 0;
             double avgTime = count > 0 ? (double) totalTime / count : 0;
             
             System.out.println("  " + gateName + ": " + count + " vehicles processed" +
@@ -434,9 +466,11 @@ public class Statistics {
         
         if (!stats.errorLog.isEmpty()) {
             System.out.println("\n  Recent Errors:");
-            stats.errorLog.stream()
-                    .skip(Math.max(0, stats.errorLog.size() - 5)) // Show last 5 errors
-                    .forEach(error -> System.out.println("    " + error.toString()));
+            List<ErrorRecord> errorList = new ArrayList<ErrorRecord>(stats.errorLog);
+            int startIndex = Math.max(0, errorList.size() - 5);
+            for (int i = startIndex; i < errorList.size(); i++) {
+                System.out.println("    " + errorList.get(i).toString());
+            }
         }
         
         // System Efficiency Summary
@@ -449,9 +483,9 @@ public class Statistics {
             System.out.println("  Throughput: " + String.format("%.1f", vehiclesPerHour) + " vehicles/hour");
         }
         
-        System.out.println("\n" + "=".repeat(80));
+        System.out.println("\n" + repeatString("=", 80));
         System.out.println("                    END OF STATISTICS REPORT");
-        System.out.println("=".repeat(80) + "\n");
+        System.out.println(repeatString("=", 80) + "\n");
     }
     
     /**

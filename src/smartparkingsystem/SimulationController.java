@@ -1,13 +1,4 @@
-/*
- * Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
- * Click nbfs://nbhost/SystemFileSystem/Templates/Classes/Class.java to edit this template
- */
 package smartparkingsystem;
-
-/**
- *
- * @author amiryusof
- */
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -54,6 +45,17 @@ public class SimulationController {
     }
     
     /**
+     * Helper method to repeat string (Java 8 compatible)
+     */
+    private String repeatString(String str, int count) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            sb.append(str);
+        }
+        return sb.toString();
+    }
+    
+    /**
      * Initialize all system components
      */
     private void initializeComponents() {
@@ -96,29 +98,37 @@ public class SimulationController {
         isRunning.set(true);
         simulationStartTime = LocalDateTime.now();
         
-        logEvent("=".repeat(80));
+        logEvent(repeatString("=", 80));
         logEvent("           SMART PARKING SYSTEM SIMULATION STARTING");
-        logEvent("=".repeat(80));
+        logEvent(repeatString("=", 80));
         logEvent("Simulation Duration: " + SIMULATION_DURATION_MINUTES + " minutes");
         logEvent("Entry Gates: " + NUMBER_OF_ENTRY_GATES);
         logEvent("Exit Gates: " + NUMBER_OF_EXIT_GATES);
         logEvent("Parking Spaces: 50");
         logEvent("Target Vehicles: 150");
         logEvent("Start Time: " + simulationStartTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
-        logEvent("=".repeat(80));
+        logEvent(repeatString("=", 80));
         
         // Initialize components
         initializeComponents();
         
         // Create main executor for simulation coordination
-        mainExecutor = Executors.newSingleThreadExecutor(r -> {
-            Thread t = new Thread(r, "SimulationController");
-            t.setDaemon(false);
-            return t;
+        mainExecutor = Executors.newSingleThreadExecutor(new ThreadFactory() {
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = new Thread(r, "SimulationController");
+                t.setDaemon(false);
+                return t;
+            }
         });
         
         // Start simulation in separate thread
-        mainExecutor.submit(this::runSimulation);
+        mainExecutor.submit(new Runnable() {
+            @Override
+            public void run() {
+                runSimulation();
+            }
+        });
     }
     
     /**
@@ -175,14 +185,17 @@ public class SimulationController {
      * Start simulation monitoring thread
      */
     private void startSimulationMonitoring() {
-        Thread monitorThread = new Thread(() -> {
-            while (isRunning.get()) {
-                try {
-                    Thread.sleep(60000); // Monitor every minute
-                    reportSystemStatus();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
+        Thread monitorThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while (isRunning.get()) {
+                    try {
+                        Thread.sleep(60000); // Monitor every minute
+                        reportSystemStatus();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                 }
             }
         }, "SimulationMonitor");
@@ -221,10 +234,12 @@ public class SimulationController {
         PaymentProcessor.PaymentStats paymentStats = paymentProcessor.getStats();
         logEvent("Payment System: " + paymentStats.toString());
         
-        // Current statistics snapshot
-        Statistics.SystemStatistics currentStats = statistics.getCurrentStats();
-        logEvent("Current Revenue: $" + String.format("%.2f", currentStats.totalRevenue));
-        logEvent("Average Wait Time: " + String.format("%.2f", currentStats.averageWaitingTime) + " seconds");
+        // Current statistics snapshot (if available)
+        if (statistics != null) {
+            Statistics.SystemStatistics currentStats = statistics.getCurrentStats();
+            logEvent("Current Revenue: $" + String.format("%.2f", currentStats.totalRevenue));
+            logEvent("Average Wait Time: " + String.format("%.2f", currentStats.averageWaitingTime) + " seconds");
+        }
         
         logEvent("=== END STATUS REPORT ===");
     }
@@ -236,9 +251,9 @@ public class SimulationController {
         simulationEndTime = LocalDateTime.now();
         long totalDuration = java.time.Duration.between(simulationStartTime, simulationEndTime).toMinutes();
         
-        logEvent("=".repeat(80));
+        logEvent(repeatString("=", 80));
         logEvent("           SIMULATION SHUTDOWN SEQUENCE INITIATED");
-        logEvent("=".repeat(80));
+        logEvent(repeatString("=", 80));
         logEvent("Total Runtime: " + totalDuration + " minutes");
         
         try {
@@ -273,9 +288,9 @@ public class SimulationController {
             // Shutdown statistics
             statistics.shutdown();
             
-            logEvent("=".repeat(80));
+            logEvent(repeatString("=", 80));
             logEvent("           SIMULATION COMPLETED SUCCESSFULLY");
-            logEvent("=".repeat(80));
+            logEvent(repeatString("=", 80));
             
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -410,10 +425,13 @@ public class SimulationController {
      * Cleanup resources on JVM shutdown
      */
     public void registerShutdownHook() {
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            if (isRunning.get()) {
-                logEvent("JVM shutdown detected - stopping simulation");
-                forceShutdown();
+        Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+            @Override
+            public void run() {
+                if (isRunning.get()) {
+                    logEvent("JVM shutdown detected - stopping simulation");
+                    forceShutdown();
+                }
             }
         }, "SimulationShutdownHook"));
     }

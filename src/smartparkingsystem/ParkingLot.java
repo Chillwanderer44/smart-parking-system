@@ -8,6 +8,7 @@ package smartparkingsystem;
  *
  * @author amiryusof
  */
+
 import java.util.concurrent.*;
 import java.util.concurrent.locks.*;
 import java.time.LocalDateTime;
@@ -15,7 +16,7 @@ import java.time.format.DateTimeFormatter;
 
 /**
  * ParkingLot - Core shared resource that manages parking spaces concurrently
- * Handles space allocation, deallocation, and maintains thread-safe operations
+ * Handles space allocation, de-allocation, and maintains thread-safe operations
  */
 public class ParkingLot {
     
@@ -27,8 +28,8 @@ public class ParkingLot {
     private final Semaphore availableSpaces;           // Controls access to parking spaces
     private final ConcurrentHashMap<Integer, Car> occupiedSpaces;  // Thread-safe space tracking
     private final ReentrantReadWriteLock spaceLock;    // For space allocation operations
-    private final ReadWriteLock.ReadLock readLock;
-    private final ReadWriteLock.WriteLock writeLock;
+    private final Lock readLock;  // Changed from ReadWriteLock.ReadLock
+    private final Lock writeLock; // Changed from ReadWriteLock.WriteLock
     
     // Space management
     private final boolean[] spaceStatus;               // true = occupied, false = available
@@ -39,10 +40,10 @@ public class ParkingLot {
      */
     public ParkingLot() {
         this.availableSpaces = new Semaphore(TOTAL_SPACES, true); // Fair semaphore
-        this.occupiedSpaces = new ConcurrentHashMap<>();
+        this.occupiedSpaces = new ConcurrentHashMap<Integer, Car>();
         this.spaceLock = new ReentrantReadWriteLock(true); // Fair lock
-        this.readLock = spaceLock.readLock();
-        this.writeLock = spaceLock.writeLock();
+        this.readLock = spaceLock.readLock();   // Fixed: Use Lock interface
+        this.writeLock = spaceLock.writeLock(); // Fixed: Use Lock interface
         this.spaceStatus = new boolean[TOTAL_SPACES];
         this.nextAvailableSpace = 0;
         
@@ -201,7 +202,7 @@ public class ParkingLot {
      * @return concurrent map of occupied spaces
      */
     public ConcurrentHashMap<Integer, Car> getOccupiedSpaces() {
-        return new ConcurrentHashMap<>(occupiedSpaces);
+        return new ConcurrentHashMap<Integer, Car>(occupiedSpaces);
     }
     
     /**

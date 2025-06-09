@@ -14,6 +14,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * ExitGate - Individual exit gate thread that processes departing vehicles

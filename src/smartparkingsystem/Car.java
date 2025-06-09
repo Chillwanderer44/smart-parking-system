@@ -74,10 +74,10 @@ public class Car {
     }
     
     /**
-     * Generate random parking duration (15 minutes to 4 hours)
+     * Generate random parking duration (1 to 5 minutes)
      */
     private int generateRandomParkingDuration() {
-        return ThreadLocalRandom.current().nextInt(15, 241); // 15 to 240 minutes
+        return ThreadLocalRandom.current().nextInt(1, 6); // 1 to 5 minutes
     }
     
     /**
@@ -163,7 +163,7 @@ public class Car {
         if (parkingTime == null) return false;
         
         long actualDuration = getActualParkingDuration();
-        return actualDuration >= (plannedParkingDuration * 0.8); // Allow 20% variance
+        return actualDuration >= (plannedParkingDuration * 0.5); // Allow 50% variance
     }
     
     // Getters and Setters

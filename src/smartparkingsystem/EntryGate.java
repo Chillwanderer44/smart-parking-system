@@ -32,6 +32,7 @@ public class EntryGate implements Runnable {
     // Dependencies
     private final ParkingLot parkingLot;
     private final VehicleGenerator vehicleGenerator;
+    private final Statistics statistics;
     
     // Statistics
     private final AtomicInteger vehiclesProcessed;
@@ -52,12 +53,14 @@ public class EntryGate implements Runnable {
      * @param gateId unique gate identifier
      * @param parkingLot reference to shared parking lot
      * @param vehicleGenerator reference to vehicle generator
+     * @param statistics reference to statistics collector
      */
-    public EntryGate(int gateId, ParkingLot parkingLot, VehicleGenerator vehicleGenerator) {
+    public EntryGate(int gateId, ParkingLot parkingLot, VehicleGenerator vehicleGenerator, Statistics statistics) {
         this.gateId = gateId;
         this.gateName = "EntryGate-" + gateId;
         this.parkingLot = parkingLot;
         this.vehicleGenerator = vehicleGenerator;
+        this.statistics = statistics;
         
         // Initialize statistics
         this.vehiclesProcessed = new AtomicInteger(0);
@@ -93,6 +96,7 @@ public class EntryGate implements Runnable {
             
         } catch (Exception e) {
             logEvent("ERROR: Exception in entry gate - " + e.getMessage());
+            statistics.recordError("ENTRY_GATE_EXCEPTION", "Exception in " + gateName + ": " + e.getMessage());
             e.printStackTrace();
         } finally {
             isOperating = false;
@@ -124,6 +128,7 @@ public class EntryGate implements Runnable {
             
         } catch (Exception e) {
             logEvent("ERROR: Failed to process vehicle - " + e.getMessage());
+            statistics.recordError("VEHICLE_PROCESSING_ERROR", "Failed to process vehicle in " + gateName + ": " + e.getMessage());
         }
     }
     
@@ -139,6 +144,10 @@ public class EntryGate implements Runnable {
                 "] (Vehicle #" + processed + ")");
         
         try {
+            // Calculate wait time (from arrival to start of processing)
+            long arrivalTimeMs = car.getArrivalTime().atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+            long waitTime = startTime - arrivalTimeMs;
+            
             // Simulate gate processing time (validation, barrier operation, etc.)
             simulateGateProcessing();
             
@@ -148,6 +157,10 @@ public class EntryGate implements Runnable {
             if (spaceNumber != -1) {
                 // Successfully parked
                 vehiclesParked.incrementAndGet();
+                
+                // Record statistics
+                statistics.recordVehicleEntry(car, waitTime);
+                
                 logEvent("Vehicle " + car.getCarId() + " successfully entered and parked in space " + 
                         spaceNumber);
                 
@@ -162,6 +175,7 @@ public class EntryGate implements Runnable {
                 // Failed to park (should be rare due to semaphore)
                 vehiclesRejected.incrementAndGet();
                 logEvent("Vehicle " + car.getCarId() + " entry failed - no parking space available");
+                statistics.recordError("PARKING_FAILED", "No space available for vehicle " + car.getCarId());
             }
             
         } catch (InterruptedException e) {
@@ -171,12 +185,16 @@ public class EntryGate implements Runnable {
             
         } catch (Exception e) {
             logEvent("ERROR: Failed to process vehicle " + car.getCarId() + " - " + e.getMessage());
+            statistics.recordError("ENTRY_PROCESSING_ERROR", "Failed to process vehicle " + car.getCarId() + ": " + e.getMessage());
             vehiclesRejected.incrementAndGet();
             
         } finally {
             // Update processing time statistics
             long processingTime = System.currentTimeMillis() - startTime;
             totalProcessingTime.addAndGet(processingTime);
+            
+            // Record gate processing statistics
+            statistics.recordGateProcessing(gateName, processingTime);
             
             logEvent("Completed processing vehicle " + car.getCarId() + " in " + processingTime + "ms");
         }

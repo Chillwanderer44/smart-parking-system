@@ -33,6 +33,7 @@ public class ExitGate implements Runnable {
     private final ParkingLot parkingLot;
     private final BlockingQueue<Car> exitQueue;
     private final PaymentProcessor paymentProcessor;
+    private final Statistics statistics;
     
     // Statistics
     private final AtomicInteger vehiclesProcessed;
@@ -56,14 +57,16 @@ public class ExitGate implements Runnable {
      * @param parkingLot reference to shared parking lot
      * @param exitQueue queue of vehicles ready to exit
      * @param paymentProcessor payment processing service
+     * @param statistics reference to statistics collector
      */
     public ExitGate(int gateId, ParkingLot parkingLot, BlockingQueue<Car> exitQueue, 
-                    PaymentProcessor paymentProcessor) {
+                    PaymentProcessor paymentProcessor, Statistics statistics) {
         this.gateId = gateId;
         this.gateName = "ExitGate-" + gateId;
         this.parkingLot = parkingLot;
         this.exitQueue = exitQueue;
         this.paymentProcessor = paymentProcessor;
+        this.statistics = statistics;
         
         // Initialize statistics
         this.vehiclesProcessed = new AtomicInteger(0);
@@ -101,6 +104,7 @@ public class ExitGate implements Runnable {
             
         } catch (Exception e) {
             logEvent("ERROR: Exception in exit gate - " + e.getMessage());
+            statistics.recordError("EXIT_GATE_EXCEPTION", "Exception in " + gateName + ": " + e.getMessage());
             e.printStackTrace();
         } finally {
             isOperating = false;
@@ -130,6 +134,7 @@ public class ExitGate implements Runnable {
             logEvent("Exit processing interrupted");
         } catch (Exception e) {
             logEvent("ERROR: Failed to process vehicle exit - " + e.getMessage());
+            statistics.recordError("EXIT_PROCESSING_ERROR", "Failed to process vehicle exit in " + gateName + ": " + e.getMessage());
         }
     }
     
@@ -148,12 +153,14 @@ public class ExitGate implements Runnable {
             // Step 1: Validate vehicle is in parking lot
             if (!validateVehicle(car)) {
                 logEvent("ERROR: Vehicle " + car.getCarId() + " validation failed");
+                statistics.recordError("EXIT_VALIDATION_FAILED", "Vehicle validation failed for " + car.getCarId());
                 return;
             }
             
             // Step 2: Process payment if not already paid
             if (!processPayment(car)) {
                 paymentFailures.incrementAndGet();
+                statistics.recordPaymentFailure(car, "Payment processing failed at exit gate");
                 logEvent("ERROR: Payment failed for vehicle " + car.getCarId() + 
                         " - blocking exit until resolved");
                 
@@ -182,6 +189,9 @@ public class ExitGate implements Runnable {
                     totalRevenue.addAndGet(revenueInCents);
                 }
                 
+                // Record statistics
+                statistics.recordVehicleExit(car);
+                
                 logEvent("Vehicle " + car.getCarId() + " successfully exited" + 
                         (car.isPaid() ? " (Paid: $" + String.format("%.2f", car.getPaymentAmount()) + ")" : " (UNPAID)"));
                 
@@ -192,6 +202,7 @@ public class ExitGate implements Runnable {
                 
             } else {
                 logEvent("ERROR: Failed to remove vehicle " + car.getCarId() + " from parking lot");
+                statistics.recordError("EXIT_REMOVAL_FAILED", "Failed to remove vehicle " + car.getCarId() + " from parking lot");
             }
             
         } catch (InterruptedException e) {
@@ -200,11 +211,15 @@ public class ExitGate implements Runnable {
             
         } catch (Exception e) {
             logEvent("ERROR: Failed to process exit for vehicle " + car.getCarId() + " - " + e.getMessage());
+            statistics.recordError("EXIT_PROCESSING_ERROR", "Failed to process exit for " + car.getCarId() + ": " + e.getMessage());
             
         } finally {
             // Update processing time statistics
             long processingTime = System.currentTimeMillis() - startTime;
             totalProcessingTime.addAndGet(processingTime);
+            
+            // Record gate processing statistics
+            statistics.recordGateProcessing(gateName, processingTime);
             
             logEvent("Completed exit processing for vehicle " + car.getCarId() + " in " + processingTime + "ms");
         }
@@ -269,6 +284,7 @@ public class ExitGate implements Runnable {
      */
     private void handleGateMalfunction() throws InterruptedException {
         logEvent("MALFUNCTION: Gate experiencing technical difficulties");
+        statistics.recordError("GATE_MALFUNCTION", "Exit gate " + gateName + " experienced malfunction");
         
         // Simulate malfunction recovery time
         int recoveryTime = ThreadLocalRandom.current().nextInt(2000, 8000); // 2-8 seconds
@@ -279,6 +295,7 @@ public class ExitGate implements Runnable {
             logEvent("Gate malfunction resolved - resuming normal operations");
         } else {
             logEvent("Gate malfunction persists - manual intervention required");
+            statistics.recordError("GATE_MANUAL_INTERVENTION", "Exit gate " + gateName + " requires manual intervention");
             // In real system, would alert maintenance
             Thread.sleep(5000); // Additional delay for manual intervention
             logEvent("Manual intervention completed - gate operational");

@@ -37,12 +37,17 @@ public class VehicleGenerator {
     private volatile boolean isGenerating;
     private ExecutorService generatorExecutor;
     
+    // Statistics integration
+    private final Statistics statistics;
+    
     /**
      * Constructor
      * @param simulationDurationMinutes How long the simulation should run
+     * @param statistics Statistics collector for recording vehicle generation
      */
-    public VehicleGenerator(int simulationDurationMinutes) {
+    public VehicleGenerator(int simulationDurationMinutes, Statistics statistics) {
         this.simulationDurationMinutes = simulationDurationMinutes;
+        this.statistics = statistics;
         this.vehicleQueue = new LinkedBlockingQueue<>();
         this.allVehicles = new CopyOnWriteArrayList<>();
         this.vehicleCounter = new AtomicInteger(1);
@@ -91,6 +96,10 @@ public class VehicleGenerator {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             logEvent("Vehicle generation interrupted");
+            statistics.recordError("GENERATION_INTERRUPTED", "Vehicle generation was interrupted");
+        } catch (Exception e) {
+            logEvent("ERROR: Exception during vehicle generation - " + e.getMessage());
+            statistics.recordError("GENERATION_ERROR", "Exception during vehicle generation: " + e.getMessage());
         } finally {
             isGenerating = false;
         }
@@ -184,12 +193,16 @@ public class VehicleGenerator {
             allVehicles.add(car);
             int count = generatedCount.incrementAndGet();
             
+            // Record statistics for vehicle generation
+            statistics.recordVehicleGenerated();
+            
             logEvent("Vehicle " + car.getCarId() + " [" + car.getLicensePlate() + 
                     "] generated (" + count + "/" + TOTAL_VEHICLES + ")");
             
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             logEvent("Failed to add vehicle " + car.getCarId() + " to queue");
+            statistics.recordError("QUEUE_ADD_FAILED", "Failed to add vehicle " + car.getCarId() + " to queue");
         }
     }
     

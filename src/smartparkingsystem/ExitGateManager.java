@@ -39,6 +39,7 @@ public class ExitGateManager {
     // Dependencies
     private final ParkingLot parkingLot;
     private final PaymentProcessor paymentProcessor;
+    private final Statistics statistics;
     
     // Control
     private volatile boolean isOperating;
@@ -56,8 +57,8 @@ public class ExitGateManager {
     /**
      * Constructor with default number of gates
      */
-    public ExitGateManager(ParkingLot parkingLot, PaymentProcessor paymentProcessor) {
-        this(DEFAULT_GATE_COUNT, parkingLot, paymentProcessor);
+    public ExitGateManager(ParkingLot parkingLot, PaymentProcessor paymentProcessor, Statistics statistics) {
+        this(DEFAULT_GATE_COUNT, parkingLot, paymentProcessor, statistics);
     }
     
     /**
@@ -65,11 +66,13 @@ public class ExitGateManager {
      * @param numberOfGates number of exit gates to create
      * @param parkingLot reference to parking lot
      * @param paymentProcessor payment processing service
+     * @param statistics reference to statistics collector
      */
-    public ExitGateManager(int numberOfGates, ParkingLot parkingLot, PaymentProcessor paymentProcessor) {
+    public ExitGateManager(int numberOfGates, ParkingLot parkingLot, PaymentProcessor paymentProcessor, Statistics statistics) {
         this.numberOfGates = numberOfGates;
         this.parkingLot = parkingLot;
         this.paymentProcessor = paymentProcessor;
+        this.statistics = statistics;
         
         // Initialize exit queue
         this.exitQueue = new LinkedBlockingQueue<>();
@@ -99,7 +102,7 @@ public class ExitGateManager {
      */
     private void createExitGates() {
         for (int i = 1; i <= numberOfGates; i++) {
-            ExitGate gate = new ExitGate(i, parkingLot, exitQueue, paymentProcessor);
+            ExitGate gate = new ExitGate(i, parkingLot, exitQueue, paymentProcessor, statistics);
             exitGates.add(gate);
         }
         logEvent("Created " + numberOfGates + " exit gates");
@@ -130,12 +133,15 @@ public class ExitGateManager {
         
         // Start all gates
         for (ExitGate gate : exitGates) {
-            Future<?> future = gateExecutor.submit(() -> {
-                activeGates.incrementAndGet();
-                try {
-                    gate.run();
-                } finally {
-                    activeGates.decrementAndGet();
+            Future<?> future = gateExecutor.submit(new Runnable() {
+                @Override
+                public void run() {
+                    activeGates.incrementAndGet();
+                    try {
+                        gate.run();
+                    } finally {
+                        activeGates.decrementAndGet();
+                    }
                 }
             });
             gateFutures.add(future);
@@ -156,28 +162,35 @@ public class ExitGateManager {
     private void startExitVehicleGeneration() {
         generatingExitVehicles = true;
         
-        exitVehicleGenerator = Executors.newSingleThreadExecutor(r -> {
-            Thread t = new Thread(r, "ExitVehicleGenerator");
-            t.setDaemon(true);
-            return t;
+        exitVehicleGenerator = Executors.newSingleThreadExecutor(new ThreadFactory() {
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = new Thread(r, "ExitVehicleGenerator");
+                t.setDaemon(true);
+                return t;
+            }
         });
         
-        exitVehicleGenerator.submit(() -> {
-            logEvent("Exit vehicle generation started");
-            
-            while (generatingExitVehicles && !Thread.currentThread().isInterrupted()) {
-                try {
-                    generateExitVehicles();
-                    Thread.sleep(5000); // Check every 5 seconds
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                } catch (Exception e) {
-                    logEvent("ERROR: Exception in exit vehicle generation - " + e.getMessage());
+        exitVehicleGenerator.submit(new Runnable() {
+            @Override
+            public void run() {
+                logEvent("Exit vehicle generation started");
+                
+                while (generatingExitVehicles && !Thread.currentThread().isInterrupted()) {
+                    try {
+                        generateExitVehicles();
+                        Thread.sleep(5000); // Check every 5 seconds
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    } catch (Exception e) {
+                        logEvent("ERROR: Exception in exit vehicle generation - " + e.getMessage());
+                        statistics.recordError("EXIT_GENERATION_ERROR", "Exception in exit vehicle generation: " + e.getMessage());
+                    }
                 }
+                
+                logEvent("Exit vehicle generation stopped");
             }
-            
-            logEvent("Exit vehicle generation stopped");
         });
     }
     
@@ -200,6 +213,7 @@ public class ExitGateManager {
             
         } catch (Exception e) {
             logEvent("ERROR: Exception in generateExitVehicles - " + e.getMessage());
+            statistics.recordError("EXIT_VEHICLE_GENERATION_ERROR", "Exception in generateExitVehicles: " + e.getMessage());
         }
     }
     
@@ -233,14 +247,17 @@ public class ExitGateManager {
      * Start monitoring thread for periodic status updates
      */
     private void startMonitoring() {
-        Thread monitorThread = new Thread(() -> {
-            while (isOperating && activeGates.get() > 0) {
-                try {
-                    Thread.sleep(30000); // Report every 30 seconds
-                    reportStatus();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
+        Thread monitorThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while (isOperating && activeGates.get() > 0) {
+                    try {
+                        Thread.sleep(30000); // Report every 30 seconds
+                        reportStatus();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                 }
             }
         }, "ExitGateMonitor");

@@ -62,23 +62,23 @@ public class SimulationController {
         logEvent("Initializing system components...");
         
         try {
+            // Initialize statistics FIRST
+            statistics = new Statistics();
+            
             // Core shared resource
             parkingLot = new ParkingLot();
             
-            // Vehicle generation
-            vehicleGenerator = new VehicleGenerator(SIMULATION_DURATION_MINUTES);
+            // Vehicle generation - PASS STATISTICS
+            vehicleGenerator = new VehicleGenerator(SIMULATION_DURATION_MINUTES, statistics);
             
             // Payment processing
             paymentProcessor = new PaymentProcessor();
             
-            // Gate management
-            entryGateManager = new EntryGateManager(NUMBER_OF_ENTRY_GATES, parkingLot, vehicleGenerator);
-            exitGateManager = new ExitGateManager(NUMBER_OF_EXIT_GATES, parkingLot, paymentProcessor);
+            // Gate management - PASS STATISTICS
+            entryGateManager = new EntryGateManager(NUMBER_OF_ENTRY_GATES, parkingLot, vehicleGenerator, statistics);
+            exitGateManager = new ExitGateManager(NUMBER_OF_EXIT_GATES, parkingLot, paymentProcessor, statistics);
             
-            // Statistics collection
-            statistics = new Statistics();
-            
-            logEvent("All components initialized successfully");
+            logEvent("All components initialized successfully with statistics integration");
             
         } catch (Exception e) {
             logEvent("ERROR: Failed to initialize components - " + e.getMessage());
@@ -234,9 +234,12 @@ public class SimulationController {
         PaymentProcessor.PaymentStats paymentStats = paymentProcessor.getStats();
         logEvent("Payment System: " + paymentStats.toString());
         
-        // Current statistics snapshot (if available)
+        // Current statistics snapshot
         if (statistics != null) {
             Statistics.SystemStatistics currentStats = statistics.getCurrentStats();
+            logEvent("STATISTICS - Generated: " + currentStats.totalGenerated + 
+                    ", Entered: " + currentStats.totalEntered + 
+                    ", Exited: " + currentStats.totalExited);
             logEvent("Current Revenue: $" + String.format("%.2f", currentStats.totalRevenue));
             logEvent("Average Wait Time: " + String.format("%.2f", currentStats.averageWaitingTime) + " seconds");
         }
@@ -283,10 +286,14 @@ public class SimulationController {
             
             // Final statistics collection
             logEvent("Generating final statistics...");
-            statistics.printFinalStatistics();
+            if (statistics != null) {
+                statistics.printFinalStatistics();
+            }
             
             // Shutdown statistics
-            statistics.shutdown();
+            if (statistics != null) {
+                statistics.shutdown();
+            }
             
             logEvent(repeatString("=", 80));
             logEvent("           SIMULATION COMPLETED SUCCESSFULLY");

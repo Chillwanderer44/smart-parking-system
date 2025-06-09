@@ -205,22 +205,20 @@ public class Statistics {
     }
     
     /**
-     * Record gate processing statistics
-     */
-    public void recordGateProcessing(String gateName, long processingTimeMs) {
-        gateProcessingCounts.computeIfAbsent(gateName, new Function<String, AtomicInteger>() {
-            @Override
-            public AtomicInteger apply(String k) {
-                return new AtomicInteger(0);
-            }
-        }).incrementAndGet();
-        gateProcessingTimes.computeIfAbsent(gateName, new Function<String, AtomicLong>() {
-            @Override
-            public AtomicLong apply(String k) {
-                return new AtomicLong(0);
-            }
-        }).addAndGet(processingTimeMs);
+ * Record gate processing statistics
+ */
+public void recordGateProcessing(String gateName, long processingTimeMs) {
+    
+    if (!gateProcessingCounts.containsKey(gateName)) {
+        gateProcessingCounts.put(gateName, new AtomicInteger(0));
     }
+    gateProcessingCounts.get(gateName).incrementAndGet();
+    
+    if (!gateProcessingTimes.containsKey(gateName)) {
+        gateProcessingTimes.put(gateName, new AtomicLong(0));
+    }
+    gateProcessingTimes.get(gateName).addAndGet(processingTimeMs);
+}
     
     /**
      * Record payment failure

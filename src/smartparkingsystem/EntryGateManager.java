@@ -35,6 +35,7 @@ public class EntryGateManager {
     // Dependencies
     private final ParkingLot parkingLot;
     private final VehicleGenerator vehicleGenerator;
+    private final Statistics statistics;
     
     // Control
     private volatile boolean isOperating;
@@ -48,8 +49,8 @@ public class EntryGateManager {
     /**
      * Constructor with default number of gates
      */
-    public EntryGateManager(ParkingLot parkingLot, VehicleGenerator vehicleGenerator) {
-        this(DEFAULT_GATE_COUNT, parkingLot, vehicleGenerator);
+    public EntryGateManager(ParkingLot parkingLot, VehicleGenerator vehicleGenerator, Statistics statistics) {
+        this(DEFAULT_GATE_COUNT, parkingLot, vehicleGenerator, statistics);
     }
     
     /**
@@ -57,11 +58,13 @@ public class EntryGateManager {
      * @param numberOfGates number of entry gates to create
      * @param parkingLot reference to parking lot
      * @param vehicleGenerator reference to vehicle generator
+     * @param statistics reference to statistics collector
      */
-    public EntryGateManager(int numberOfGates, ParkingLot parkingLot, VehicleGenerator vehicleGenerator) {
+    public EntryGateManager(int numberOfGates, ParkingLot parkingLot, VehicleGenerator vehicleGenerator, Statistics statistics) {
         this.numberOfGates = numberOfGates;
         this.parkingLot = parkingLot;
         this.vehicleGenerator = vehicleGenerator;
+        this.statistics = statistics;
         
         // Initialize collections
         this.entryGates = new ArrayList<>();
@@ -87,7 +90,7 @@ public class EntryGateManager {
      */
     private void createEntryGates() {
         for (int i = 1; i <= numberOfGates; i++) {
-            EntryGate gate = new EntryGate(i, parkingLot, vehicleGenerator);
+            EntryGate gate = new EntryGate(i, parkingLot, vehicleGenerator, statistics);
             entryGates.add(gate);
         }
         logEvent("Created " + numberOfGates + " entry gates");
@@ -118,12 +121,15 @@ public class EntryGateManager {
         
         // Start all gates
         for (EntryGate gate : entryGates) {
-            Future<?> future = gateExecutor.submit(() -> {
-                activeGates.incrementAndGet();
-                try {
-                    gate.run();
-                } finally {
-                    activeGates.decrementAndGet();
+            Future<?> future = gateExecutor.submit(new Runnable() {
+                @Override
+                public void run() {
+                    activeGates.incrementAndGet();
+                    try {
+                        gate.run();
+                    } finally {
+                        activeGates.decrementAndGet();
+                    }
                 }
             });
             gateFutures.add(future);
@@ -139,14 +145,17 @@ public class EntryGateManager {
      * Start monitoring thread for periodic status updates
      */
     private void startMonitoring() {
-        Thread monitorThread = new Thread(() -> {
-            while (isOperating && activeGates.get() > 0) {
-                try {
-                    Thread.sleep(30000); // Report every 30 seconds
-                    reportStatus();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
+        Thread monitorThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while (isOperating && activeGates.get() > 0) {
+                    try {
+                        Thread.sleep(30000); // Report every 30 seconds
+                        reportStatus();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                 }
             }
         }, "EntryGateMonitor");
